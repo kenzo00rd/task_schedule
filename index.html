@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KAKUGO Planner Pro - 完全版</title>
+    <!-- デザイン用ライブラリ (Tailwind CSS) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- アイコン用ライブラリ (FontAwesome) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        /* --- CSSスタイル設定 --- */
+        body { font-family: 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6; }
+        .hidden { display: none; }
+        
+        /* タブデザイン */
+        .tab-active { background-color: white; color: #4f46e5; font-weight: bold; border-bottom: 2px solid #4f46e5; }
+        .tab-inactive { background-color: transparent; color: #e0e7ff; }
+        
+        /* カレンダー */
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .calendar-day { min-height: 90px; background: white; border: 1px solid #e5e7eb; padding: 4px; font-size: 0.8rem; position: relative;}
+        .calendar-day:hover { border-color: #6366f1; background-color: #f5f3ff; }
+        .today { background-color: #eff6ff; border-color: #93c5fd; }
+
+        /* 優先度バッジ */
+        .prio-high { border-left: 4px solid #ef4444; background-color: #fef2f2; }
+        .prio-mid { border-left: 4px solid #3b82f6; background-color: #eff6ff; }
+        .prio-low { border-left: 4px solid #9ca3af; background-color: #f9fafb; }
+
+        /* タイムライン */
+        .timeline-container { position: relative; height: 600px; border-left: 1px solid #d1d5db; background: repeating-linear-gradient(0deg, #f9fafb, #f9fafb 24px, #e5e7eb 25px); background-size: 100% 25px; }
+        .timeline-hour { position: absolute; left: -35px; font-size: 10px; color: #6b7280; height: 25px; line-height: 25px; }
+        .time-block { position: absolute; left: 2px; right: 2px; border-radius: 4px; font-size: 10px; padding: 2px; overflow: hidden; color: white; opacity: 0.9; box-shadow: 1px 1px 2px rgba(0,0,0,0.1); transition: all 0.2s; z-index: 10; cursor: pointer; }
+        .time-block:hover { z-index: 20; transform: scale(1.02); opacity: 1; }
+        /* 削除ボタンのホバー表示 */
+        .task-item:hover .delete-btn { opacity: 1; }
+        .delete-btn { opacity: 0.3; transition: opacity 0.2s; }
+
+        /* やらないことリストのアニメーション */
+        @keyframes bounce-sm {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-3px); }
+        }
+        .streak-fire { color: #f97316; animation: bounce-sm 1s infinite; }
+    </style>
+</head>
+<body>
+
+    <!-- ヘッダー -->
+    <header class="bg-indigo-600 text-white p-4 shadow-lg sticky top-0 z-40">
+        <div class="max-w-5xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <h1 class="text-xl font-bold flex items-center gap-2">
+                    <i class="fa-solid fa-shield-halved"></i> KAKUGO Planner Pro
+                </h1>
+                <p class="text-xs text-indigo-200">覚悟のタスク管理（ローカル保存版）</p>
+            </div>
+            <div class="flex bg-indigo-800 rounded-full p-1">
+                <button onclick="switchTab('dashboard')" id="btn-dashboard" class="px-4 py-1 rounded-full text-sm transition tab-active">今日</button>
+                <button onclick="switchTab('planning')" id="btn-planning" class="px-4 py-1 rounded-full text-sm transition tab-inactive">計画入力</button>
+                <button onclick="switchTab('calendar')" id="btn-calendar" class="px-4 py-1 rounded-full text-sm transition tab-inactive">カレンダー</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-5xl mx-auto p-4 pb-20">
+        
+        <!-- 1. ダッシュボード（今日のリスト） -->
+        <div id="view-dashboard" class="block space-y-6">
+            
+            <!-- ⛔ やらないことリスト -->
+            <div class="bg-red-50 border-2 border-red-200 rounded-lg shadow-sm p-4">
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="font-bold text-red-700 flex items-center gap-2">
+                        <i class="fa-solid fa-ban"></i> やらないことリスト (NOT TO DO)
+                    </h3>
+                    <button onclick="document.getElementById('add-not-todo-form').classList.toggle('hidden')" class="text-xs text-red-500 hover:bg-red-100 px-2 py-1 rounded">
+                        <i class="fa-solid fa-plus"></i> 追加
+                    </button>
+                </div>
+                
+                <div id="add-not-todo-form" class="hidden mb-3 flex gap-2">
+                    <input type="text" id="new-not-todo" placeholder="例：コンビニに寄らない、ギャンブル..." class="flex-1 text-sm border p-2 rounded outline-none focus:border-red-400">
+                    <button onclick="addNotToDo()" class="bg-red-500 text-white px-4 py-1 rounded text-sm font-bold">登録</button>
+                </div>
+
+                <div id="not-todo-list" class="space-y-2"></div>
+            </div>
+
+            <!-- 手動LINE共有エリア -->
+            <div class="bg-gradient-to-r from-green-500 to-emerald-600 rounded-lg shadow-lg p-4 text-white flex justify-between items-center">
+                <div>
+                    <h3 class="font-bold"><i class="fa-brands fa-line text-xl mr-2"></i>今日の予定をLINEに送る</h3>
+                    <p class="text-xs opacity-90">ボタンを押すとLINEが起動し、テキストを作成します</p>
+                </div>
+                <button onclick="sendScheduleToLine()" class="bg-white text-green-600 px-4 py-2 rounded-full font-bold shadow hover:bg-gray-100 transition transform hover:scale-105">
+                    LINE起動 <i class="fa-solid fa-paper-plane ml-1"></i>
+                </button>
+            </div>
+
+            <!-- 今日のアクション -->
+            <div class="bg-white p-6 rounded-lg shadow-md border-l-4 border-indigo-500">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-bold text-gray-800"><span class="text-indigo-600" id="today-date-display"></span> のアクション</h2>
+                    <div class="flex gap-2">
+                        <button onclick="requestNotificationPermission()" class="text-xs bg-gray-100 text-gray-600 px-3 py-1 rounded hover:bg-gray-200" title="ブラウザを開いている間のみ通知">
+                            <i class="fa-solid fa-bell"></i> ブラウザ通知ON
+                        </button>
+                        <button onclick="openDailyDetail(new Date())" class="text-sm bg-indigo-100 text-indigo-700 px-3 py-1 rounded hover:bg-indigo-200">
+                            <i class="fa-solid fa-clock"></i> 時間割調整
+                        </button>
+                    </div>
+                </div>
+                <div id="today-task-list" class="space-y-3"></div>
+            </div>
+        </div>
+
+        <!-- 2. 計画・細分化 -->
+        <div id="view-planning" class="hidden space-y-6">
+            <div class="bg-indigo-50 p-6 rounded-lg border border-indigo-100 shadow-inner">
+                <label class="block text-sm font-bold text-indigo-900 mb-2">① カテゴリ（目標）を設定する</label>
+                <div class="flex gap-2">
+                    <input type="text" id="new-goal-title" placeholder="例：仕事、資格勉強、買い物リスト..." class="flex-1 p-3 border border-indigo-200 rounded shadow-sm">
+                    <button onclick="addGoal()" class="bg-indigo-600 text-white px-6 py-2 rounded font-bold hover:bg-indigo-700 shadow">追加</button>
+                </div>
+            </div>
+            <div id="goals-container" class="space-y-6"></div>
+        </div>
+
+        <!-- 3. カレンダー -->
+        <div id="view-calendar" class="hidden">
+            <div class="bg-white p-4 rounded-lg shadow">
+                <div class="flex justify-between items-center mb-4">
+                    <div class="flex items-center gap-4">
+                        <button onclick="changeMonth(-1)" class="text-gray-500 hover:text-indigo-600"><i class="fa-solid fa-chevron-left"></i></button>
+                        <h2 class="text-xl font-bold text-gray-800" id="calendar-month-display"></h2>
+                        <button onclick="changeMonth(1)" class="text-gray-500 hover:text-indigo-600"><i class="fa-solid fa-chevron-right"></i></button>
+                    </div>
+                    <div class="text-xs flex gap-2">
+                        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-red-500"></span>高</span>
+                        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-blue-500"></span>中</span>
+                        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-gray-400"></span>低</span>
+                    </div>
+                </div>
+                <div class="calendar-grid text-center font-bold text-gray-500 text-xs pb-2">
+                    <div class="text-red-400">日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div class="text-blue-400">土</div>
+                </div>
+                <div id="calendar-cells" class="calendar-grid mt-1"></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 1日の詳細・タイムスケジュールモーダル -->
+    <div id="modal-daily" class="hidden fixed inset-0 bg-gray-900 bg-opacity-60 overflow-y-auto h-full w-full z-50 flex justify-center items-start pt-10">
+        <div class="bg-white w-full max-w-4xl rounded-lg shadow-2xl overflow-hidden mb-10">
+            <div class="bg-indigo-600 p-4 flex justify-between items-center text-white">
+                <h3 class="text-xl font-bold" id="daily-modal-date"></h3>
+                <button onclick="closeDailyModal()" class="text-indigo-200 hover:text-white text-2xl"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="flex flex-col md:flex-row h-[700px]">
+                <div class="w-full md:w-1/3 border-r bg-gray-50 p-4 overflow-y-auto">
+                    <h4 class="font-bold text-gray-700 mb-2 text-center text-sm">タイムライン (6:00 - 24:00)</h4>
+                    <div class="relative mt-4 pl-8 pr-2">
+                        <div id="timeline-view" class="timeline-container"></div>
+                    </div>
+                </div>
+                <div class="w-full md:w-2/3 p-4 overflow-y-auto bg-white">
+                    <div class="flex justify-between items-center mb-4 border-b pb-2">
+                        <h4 class="font-bold text-gray-700">タスクの時間割と優先度</h4>
+                        <button onclick="quickAddTaskToDate()" class="text-xs bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700">＋ 新規タスク追加</button>
+                    </div>
+                    <div id="daily-task-editor" class="space-y-4"></div>
+                    <div id="daily-empty-msg" class="text-center text-gray-400 py-10 hidden">
+                        タスクがありません。<br>右上のボタンまたは「計画入力」タブから追加してください。
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 自動提案モーダル -->
+    <div id="modal-suggest" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 h-full w-full z-50 flex justify-center items-center">
+        <div class="bg-white w-full max-w-md p-5 rounded-lg shadow-lg">
+            <h3 class="font-bold text-lg mb-2 text-indigo-700">自動提案リスト</h3>
+            <div id="suggest-list" class="max-h-60 overflow-y-auto border p-2 mb-4 bg-gray-50 rounded"></div>
+            <div class="flex justify-end gap-2">
+                <button onclick="document.getElementById('modal-suggest').classList.add('hidden')" class="px-3 py-1 bg-gray-200 rounded">閉じる</button>
+                <button onclick="importSuggestedTasks()" class="px-3 py-1 bg-indigo-600 text-white rounded font-bold">追加</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* --- JavaScript プログラム --- */
+
+        // --- データ管理 ---
+        const STORAGE_KEY = 'kakugo_planner_pro_local';
+        const STORAGE_NOT_TODO = 'kakugo_not_todo_local';
+
+        // 初期データ
+        const initialData = [{ id: 1, title: 'スケジュール管理', tasks: [] }];
+        let goals = JSON.parse(localStorage.getItem(STORAGE_KEY)) || initialData;
+        let notToDos = JSON.parse(localStorage.getItem(STORAGE_NOT_TODO)) || [];
+
+        let currentGoalId = null;
+        let selectedDateStr = null; 
+        let currentCalendarDate = new Date();
+
+        // 提案データ
+        const SUGGESTIONS = {
+            'ブログ': ['キーワード選定', '構成案作成', '記事執筆(2000字)', 'アイキャッチ画像作成', 'SNSシェア'],
+            'ダイエット': ['体重記録', 'スクワット30回', '食事写真を撮る', 'お菓子を我慢する', 'ウォーキング20分'],
+            '勉強': ['単語帳10分', '問題集2ページ', '復習', 'オンライン講義視聴'],
+            '仕事': ['メールチェック', '会議資料作成', '日報提出', '明日の予定確認'],
+            'default': ['現状のリサーチ', '必要な道具の準備', '期限の設定', '参考書を読む', '5分だけ着手する']
+        };
+
+        // 起動時の処理
+        document.addEventListener('DOMContentLoaded', () => {
+            updateDateDisplay();
+            renderAll();
+            renderNotToDoList();
+            checkNotifications();
+        });
+
+        function updateDateDisplay() {
+            const today = new Date();
+            const ops = {year:'numeric', month:'short', day:'numeric', weekday:'short'};
+            document.getElementById('today-date-display').innerText = today.toLocaleDateString('ja-JP', ops);
+        }
+
+        function saveData() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(goals));
+            localStorage.setItem(STORAGE_NOT_TODO, JSON.stringify(notToDos));
+            renderAll();
+            renderNotToDoList();
+            if(!document.getElementById('modal-daily').classList.contains('hidden')){
+                renderDailyContent(selectedDateStr);
+            }
+        }
+
+        // --- やらないことリスト (NOT TO DO) ---
+        function addNotToDo() {
+            const input = document.getElementById('new-not-todo');
+            const title = input.value.trim();
+            if(!title) return;
+
+            notToDos.push({ id: Date.now(), title: title, lastCheckedDate: null, streak: 0 });
+            input.value = '';
+            document.getElementById('add-not-todo-form').classList.add('hidden');
+            saveData();
+        }
+
+        function deleteNotToDo(id) {
+            if(confirm('削除してよろしいですか？')) {
+                notToDos = notToDos.filter(item => item.id !== id);
+                saveData();
+            }
+        }
+
+        function toggleNotToDo(id) {
+            const item = notToDos.find(i => i.id === id);
+            const todayStr = new Date().toLocaleDateString('ja-JP').replaceAll('/','-');
+            
+            if(item.lastCheckedDate === todayStr) {
+                if(confirm('今日の達成を取り消しますか？')) {
+                    item.lastCheckedDate = null; 
+                    if(item.streak > 0) item.streak--;
+                }
+            } else {
+                const yesterday = new Date();
+                yesterday.setDate(yesterday.getDate() - 1);
+                const yesterdayStr = yesterday.toLocaleDateString('ja-JP').replaceAll('/','-');
+
+                if (item.lastCheckedDate === yesterdayStr) item.streak++;
+                else item.streak = 1;
+                
+                item.lastCheckedDate = todayStr;
+                alert(`素晴らしい！「${item.title}」を我慢しました。\n現在 ${item.streak}日 連続達成中！🔥`);
+            }
+            saveData();
+        }
+
+        function renderNotToDoList() {
+            const list = document.getElementById('not-todo-list');
+            list.innerHTML = '';
+            const todayStr = new Date().toLocaleDateString('ja-JP').replaceAll('/','-');
+
+            if(notToDos.length === 0) {
+                list.innerHTML = '<div class="text-xs text-red-400 text-center">リストが空です。「追加」ボタンから登録しましょう。</div>';
+                return;
+            }
+
+            notToDos.forEach(item => {
+                const isDoneToday = item.lastCheckedDate === todayStr;
+                const div = document.createElement('div');
+                div.className = `flex justify-between items-center p-3 rounded border ${isDoneToday ? 'bg-red-100 border-red-300' : 'bg-white border-red-100'}`;
+                
+                div.innerHTML = `
+                    <div class="flex items-center gap-3 flex-1">
+                        <button onclick="toggleNotToDo(${item.id})" class="text-xl w-8 h-8 rounded-full flex justify-center items-center transition ${isDoneToday ? 'bg-red-500 text-white shadow-lg scale-110' : 'bg-gray-100 text-gray-300 hover:bg-red-100 hover:text-red-300'}">
+                            <i class="fa-solid fa-shield-cat"></i>
+                        </button>
+                        <div>
+                            <div class="font-bold text-gray-800 ${isDoneToday ? 'text-red-800' : ''}">${item.title}</div>
+                            <div class="text-xs text-gray-500 flex items-center gap-1">
+                                ${isDoneToday ? '<span class="text-red-600 font-bold">今日も達成！</span>' : '今日はまだ未達成'}
+                                <span class="bg-gray-100 px-1 rounded ml-1">🔥 連続 ${item.streak}日</span>
+                            </div>
+                        </div>
+                    </div>
+                    <button onclick="deleteNotToDo(${item.id})" class="text-gray-300 hover:text-red-400 ml-2"><i class="fa-solid fa-trash-can"></i></button>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        // --- タブ切り替え ---
+        function switchTab(tab) {
+            ['dashboard', 'planning', 'calendar'].forEach(t => {
+                document.getElementById(`view-${t}`).classList.add('hidden');
+                document.getElementById(`btn-${t}`).classList.replace('tab-active', 'tab-inactive');
+            });
+            document.getElementById(`view-${tab}`).classList.remove('hidden');
+            document.getElementById(`btn-${tab}`).classList.replace('tab-inactive', 'tab-active');
+            if(tab === 'calendar') renderCalendar();
+        }
+
+        // --- ゴール操作 ---
+        function addGoal() {
+            const title = document.getElementById('new-goal-title').value.trim();
+            if(!title) return;
+            goals.push({ id: Date.now(), title: title, tasks: [] });
+            document.getElementById('new-goal-title').value = '';
+            saveData();
+        }
+
+        function deleteGoal(id) {
+            if(confirm('【警告】カテゴリを削除しますか？\n\nここに含まれる「すべてのタスク」も一緒に消えてしまいます。\n個別のタスクを消したい場合は、各タスクのゴミ箱ボタンを使用してください。')) {
+                goals = goals.filter(g => g.id !== id);
+                saveData();
+            }
+        }
+
+        // --- タスク操作 ---
+        function addTask(goalId, title=null, date=null, priority='mid') {
+            const tTitle = title || document.getElementById(`title-${goalId}`).value;
+            const tDate = date || document.getElementById(`date-${goalId}`).value;
+            const tPrio = document.getElementById(`prio-${goalId}`)?.value || priority;
+            
+            if(!tTitle || !tDate) return;
+
+            const goal = goals.find(g => g.id === goalId);
+            if(goal) {
+                goal.tasks.push({
+                    id: Date.now(), title: tTitle, date: tDate, priority: tPrio, startTime: '', duration: 30, completed: false
+                });
+                saveData();
+                if(!title && document.getElementById(`title-${goalId}`)) {
+                    document.getElementById(`title-${goalId}`).value = '';
+                }
+            }
+        }
+        
+        // 個別タスクの削除（新規追加機能）
+        function deleteTask(goalId, taskId) {
+            if(confirm('このタスクを削除しますか？')) {
+                const goal = goals.find(g => g.id === goalId);
+                if(goal) {
+                    goal.tasks = goal.tasks.filter(t => t.id !== taskId);
+                    saveData();
+                }
+            }
+        }
+
+        function quickAddTaskToDate() {
+            let defaultGoal = goals[0]; 
+            if(!defaultGoal) {
+                defaultGoal = { id: Date.now(), title: 'スケジュール管理', tasks: [] };
+                goals.push(defaultGoal);
+            }
+            const name = prompt("タスク名を入力してください:", "");
+            if(name) addTask(defaultGoal.id, name, selectedDateStr, 'mid');
+        }
+
+        function toggleTask(goalId, taskId) {
+            const goal = goals.find(g => g.id === goalId);
+            const task = goal.tasks.find(t => t.id === taskId);
+            if(task) {
+                task.completed = !task.completed;
+                saveData();
+            }
+        }
+
+        function updateTaskDetails(goalId, taskId, field, value) {
+            const goal = goals.find(g => g.id === goalId);
+            const task = goal.tasks.find(t => t.id === taskId);
+            if(task) {
+                task[field] = value;
+                saveData();
+            }
+        }
+
+        // --- 詳細 & タイムライン ---
+        function openDailyDetail(dateObj) {
+            selectedDateStr = dateObj.toLocaleDateString('ja-JP', {year:'numeric', month:'2-digit', day:'2-digit'}).replaceAll('/', '-');
+            const dayOfWeek = ['日','月','火','水','木','金','土'][dateObj.getDay()];
+            document.getElementById('daily-modal-date').innerText = `${selectedDateStr} (${dayOfWeek})`;
+            document.getElementById('modal-daily').classList.remove('hidden');
+            renderDailyContent(selectedDateStr);
+        }
+
+        function closeDailyModal() {
+            document.getElementById('modal-daily').classList.add('hidden');
+            renderCalendar(); renderAll();
+        }
+
+        function renderDailyContent(dateStr) {
+            const container = document.getElementById('daily-task-editor');
+            const timeline = document.getElementById('timeline-view');
+            container.innerHTML = ''; timeline.innerHTML = '';
+
+            for(let i=6; i<=24; i++) {
+                const hourDiv = document.createElement('div');
+                hourDiv.className = 'timeline-hour';
+                hourDiv.style.top = `${(i - 6) * 25}px`; 
+                hourDiv.innerText = `${i}:00`;
+                timeline.appendChild(hourDiv);
+            }
+
+            let dailyTasks = [];
+            goals.forEach(g => {
+                g.tasks.forEach(t => {
+                    if(t.date === dateStr) dailyTasks.push({...t, goalId: g.id, goalTitle: g.title});
+                });
+            });
+
+            if(dailyTasks.length === 0) document.getElementById('daily-empty-msg').classList.remove('hidden');
+            else document.getElementById('daily-empty-msg').classList.add('hidden');
+
+            dailyTasks.sort((a, b) => {
+                if(!a.startTime) return 1;
+                if(!b.startTime) return -1;
+                return a.startTime.localeCompare(b.startTime);
+            });
+
+            dailyTasks.forEach(task => {
+                const div = document.createElement('div');
+                div.className = `flex flex-col sm:flex-row items-center gap-2 p-3 rounded border shadow-sm task-item ${task.completed ? 'bg-gray-100' : 'bg-white'}`;
+                const borderClass = task.priority === 'high' ? 'border-l-red-500' : (task.priority === 'low' ? 'border-l-gray-400' : 'border-l-blue-500');
+                div.classList.add('border-l-4', borderClass);
+
+                div.innerHTML = `
+                    <div class="flex-1 w-full">
+                        <div class="flex items-center gap-2">
+                            <input type="checkbox" onchange="toggleTask(${task.goalId}, ${task.id})" ${task.completed ? 'checked' : ''} class="w-5 h-5 accent-indigo-600">
+                            <input type="text" value="${task.title}" onchange="updateTaskDetails(${task.goalId}, ${task.id}, 'title', this.value)" class="font-bold text-gray-800 w-full border-b border-transparent hover:border-gray-300 focus:outline-none ${task.completed ? 'line-through opacity-50':''}">
+                        </div>
+                        <div class="text-xs text-gray-500 mt-1 ml-7">${task.goalTitle}</div>
+                    </div>
+                    <div class="flex items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
+                        <input type="time" value="${task.startTime}" onchange="updateTaskDetails(${task.goalId}, ${task.id}, 'startTime', this.value)" class="text-xs p-1 border rounded shadow-sm">
+                        <div class="flex items-center gap-1">
+                            <input type="number" value="${task.duration}" onchange="updateTaskDetails(${task.goalId}, ${task.id}, 'duration', this.value)" class="w-12 text-xs p-1 border rounded shadow-sm">
+                            <span class="text-xs text-gray-500">分</span>
+                        </div>
+                        <button onclick="deleteTask(${task.goalId}, ${task.id})" class="text-gray-400 hover:text-red-500 px-2 py-1 delete-btn" title="削除"><i class="fa-solid fa-trash-can"></i></button>
+                    </div>
+                `;
+                container.appendChild(div);
+
+                if(task.startTime && !task.completed) {
+                    const [h, m] = task.startTime.split(':').map(Number);
+                    const startMinutes = (h * 60) + m;
+                    const startOffset = startMinutes - (6 * 60); 
+                    if(startOffset >= 0) {
+                        const pxPerMin = 25 / 60; 
+                        const top = startOffset * pxPerMin;
+                        const height = task.duration * pxPerMin;
+                        const block = document.createElement('div');
+                        block.className = 'time-block truncate px-1';
+                        if(task.priority === 'high') block.classList.add('bg-red-500');
+                        else if(task.priority === 'low') block.classList.add('bg-gray-400');
+                        else block.classList.add('bg-blue-500');
+                        block.style.top = `${top + 10}px`; 
+                        block.style.height = `${Math.max(18, height)}px`; 
+                        block.innerHTML = `<span class="font-bold">${task.startTime}</span> ${task.title}`;
+                        timeline.appendChild(block);
+                    }
+                }
+            });
+        }
+
+        // --- 提案機能 ---
+        function openSuggest(goalId, goalTitle) {
+            currentGoalId = goalId;
+            const list = document.getElementById('suggest-list');
+            list.innerHTML = '';
+            let key = 'default';
+            for(let k in SUGGESTIONS) if(goalTitle.includes(k)) key = k;
+            SUGGESTIONS[key].forEach((text, i) => {
+                list.innerHTML += `
+                    <div class="flex items-center p-2 border-b hover:bg-gray-50">
+                        <input type="checkbox" id="sug-${i}" value="${text}" checked class="mr-2 accent-indigo-600">
+                        <label for="sug-${i}" class="text-sm cursor-pointer flex-1">${text}</label>
+                    </div>`;
+            });
+            document.getElementById('modal-suggest').classList.remove('hidden');
+        }
+
+        function importSuggestedTasks() {
+            const inputs = document.querySelectorAll('#suggest-list input:checked');
+            if(inputs.length === 0) return;
+            const goal = goals.find(g => g.id === currentGoalId);
+            const today = new Date();
+            inputs.forEach((input, i) => {
+                const d = new Date(today);
+                d.setDate(today.getDate() + 1 + Math.floor(i/2));
+                const dStr = d.toLocaleDateString('ja-JP', {year:'numeric',month:'2-digit',day:'2-digit'}).replaceAll('/','-');
+                goal.tasks.push({ id: Date.now() + i, title: input.value, date: dStr, priority: 'mid', startTime: '', duration: 30, completed: false });
+            });
+            saveData();
+            document.getElementById('modal-suggest').classList.add('hidden');
+        }
+
+        // --- 手動LINE共有 & ブラウザ通知 ---
+        function sendScheduleToLine() {
+            const todayStr = new Date().toLocaleDateString('ja-JP', {year:'numeric',month:'2-digit',day:'2-digit'}).replaceAll('/','-');
+            let todays = [];
+            goals.forEach(g => g.tasks.forEach(t => { if(t.date === todayStr && !t.completed) todays.push({...t, goalTitle: g.title}); }));
+            todays.sort((a,b) => (a.startTime||'99:99').localeCompare(b.startTime||'99:99'));
+
+            if(todays.length === 0 && notToDos.length === 0) { alert("今日のタスクも、やらないことリストもありません！"); return; }
+            
+            let message = `📅 ${todayStr} の予定\n\n`;
+            if(todays.length > 0) {
+                todays.forEach(t => {
+                    const time = t.startTime ? `${t.startTime} ` : '時間未定 ';
+                    message += `・${time}${t.title}\n`;
+                });
+            } else {
+                message += `（タスクなし）\n`;
+            }
+            
+            message += `\n⛔ やらないことチェック\n`;
+            notToDos.forEach(n => {
+                const done = n.lastCheckedDate === todayStr ? '✅ 達成!' : '⬜ 未達成';
+                message += `${done} ${n.title}\n`;
+            });
+            message += `\n#KAKUGO_Planner`;
+            
+            // LINE起動用URL
+            const url = `https://line.me/R/msg/text/?${encodeURIComponent(message)}`;
+            window.open(url, '_blank');
+        }
+
+        function requestNotificationPermission() {
+            if (!("Notification" in window)) alert("このブラウザは通知に対応していません。");
+            else Notification.requestPermission().then(p => { if (p === "granted") new Notification("通知設定完了"); });
+        }
+
+        function checkNotifications() {
+            if (Notification.permission !== "granted") return;
+            const now = new Date();
+            const currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+            const todayStr = now.toLocaleDateString('ja-JP', {year:'numeric',month:'2-digit',day:'2-digit'}).replaceAll('/','-');
+            goals.forEach(g => {
+                g.tasks.forEach(t => {
+                    if(t.date === todayStr && t.startTime === currentTime && !t.completed) {
+                        new Notification(`時間です: ${t.title}`, { body: `${t.startTime} - ${g.title}` });
+                    }
+                });
+            });
+            setTimeout(checkNotifications, 60000);
+        }
+
+        // --- 描画全般 ---
+        function renderAll() {
+            const dashList = document.getElementById('today-task-list');
+            dashList.innerHTML = '';
+            const todayStr = new Date().toLocaleDateString('ja-JP', {year:'numeric',month:'2-digit',day:'2-digit'}).replaceAll('/','-');
+            
+            let todays = [];
+            goals.forEach(g => g.tasks.forEach(t => { if(t.date === todayStr) todays.push({...t, goalId: g.id, goalTitle: g.title}); }));
+            
+            todays.sort((a,b) => {
+                if(a.completed !== b.completed) return a.completed - b.completed;
+                const timeA = a.startTime || '99:99';
+                const timeB = b.startTime || '99:99';
+                if(timeA !== timeB) return timeA.localeCompare(timeB);
+                const prioScore = {high:3, mid:2, low:1};
+                return prioScore[b.priority] - prioScore[a.priority];
+            });
+
+            if(todays.length === 0) dashList.innerHTML = '<div class="text-gray-400 text-center py-10 bg-gray-50 rounded border border-dashed">今日のタスクはありません。</div>';
+
+            todays.forEach(t => {
+                const div = document.createElement('div');
+                let prioClass = t.priority === 'high' ? 'prio-high' : (t.priority === 'low' ? 'prio-low' : 'prio-mid');
+                if(t.completed) prioClass = 'bg-gray-100 border-l-4 border-gray-300'; 
+
+                div.className = `flex items-center p-3 rounded shadow-sm transition task-item ${prioClass}`;
+                div.innerHTML = `
+                    <button onclick="toggleTask(${t.goalId}, ${t.id})" class="mr-3 w-6 h-6 rounded-full border border-gray-400 bg-white flex justify-center items-center hover:bg-indigo-50 transition">
+                        ${t.completed ? '<i class="fa-solid fa-check text-indigo-500"></i>' : '<span class="w-full h-full rounded-full"></span>'}
+                    </button>
+                    <div class="flex-1 cursor-pointer" onclick="openDailyDetail(new Date())">
+                        <div class="font-bold text-gray-800 ${t.completed?'line-through opacity-50':''}">${t.title}</div>
+                        <div class="text-xs text-gray-500 flex gap-3 mt-1">
+                            <span class="bg-white px-1 rounded border border-gray-200"><i class="fa-solid fa-folder-open text-indigo-400"></i> ${t.goalTitle}</span>
+                            ${t.startTime ? `<span class="font-bold text-indigo-600"><i class="fa-regular fa-clock"></i> ${t.startTime} (${t.duration}分)</span>` : ''}
+                        </div>
+                    </div>
+                    <button onclick="deleteTask(${t.goalId}, ${t.id})" class="text-gray-400 hover:text-red-500 px-3 py-2 delete-btn" title="削除"><i class="fa-solid fa-trash-can"></i></button>
+                `;
+                dashList.appendChild(div);
+            });
+
+            // Planning
+            const planContainer = document.getElementById('goals-container');
+            planContainer.innerHTML = '';
+            goals.forEach(g => {
+                let tasksHtml = '';
+                const sortedTasks = [...g.tasks].sort((a,b) => a.completed - b.completed || new Date(a.date) - new Date(b.date));
+                sortedTasks.forEach(t => {
+                    let color = t.priority === 'high' ? 'text-red-500' : (t.priority === 'low' ? 'text-gray-400' : 'text-blue-500');
+                    tasksHtml += `
+                        <div class="flex justify-between items-center p-2 border-b text-sm hover:bg-gray-50 group">
+                            <div class="flex items-center gap-2">
+                                <i class="fa-solid fa-circle text-[6px] ${color}"></i>
+                                <span class="${t.completed?'line-through text-gray-300':''}">${t.title}</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <div class="text-xs text-gray-400">${t.date.slice(5)}</div>
+                                <button onclick="deleteTask(${g.id}, ${t.id})" class="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                        </div>`;
+                });
+
+                const div = document.createElement('div');
+                div.className = 'bg-white rounded shadow p-4 border-t-4 border-indigo-500';
+                div.innerHTML = `
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="font-bold text-lg text-gray-700">${g.title}</h3>
+                        <div class="flex gap-2">
+                            <button onclick="openSuggest(${g.id}, '${g.title}')" class="text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded hover:bg-indigo-100 transition"><i class="fa-solid fa-wand-magic-sparkles"></i> 提案</button>
+                            <button onclick="deleteGoal(${g.id})" class="text-xs text-gray-400 hover:text-red-500 border border-gray-300 px-2 py-1 rounded hover:bg-red-50 transition">削除</button>
+                        </div>
+                    </div>
+                    <div class="flex gap-1 mb-2 bg-gray-100 p-2 rounded">
+                        <input id="title-${g.id}" type="text" placeholder="新しいタスク" class="flex-1 border p-1 rounded text-sm focus:ring-2 focus:ring-indigo-300 outline-none">
+                        <input id="date-${g.id}" type="date" value="${todayStr}" class="border p-1 rounded text-sm text-gray-600">
+                        <select id="prio-${g.id}" class="border p-1 rounded text-sm text-gray-600">
+                            <option value="high">高</option>
+                            <option value="mid" selected>中</option>
+                            <option value="low">低</option>
+                        </select>
+                        <button onclick="addTask(${g.id})" class="bg-indigo-600 text-white px-3 rounded text-sm hover:bg-indigo-700 transition"><i class="fa-solid fa-plus"></i></button>
+                    </div>
+                    <div class="max-h-40 overflow-y-auto border rounded bg-white">${tasksHtml}</div>
+                `;
+                planContainer.appendChild(div);
+            });
+        }
+
+        // Calendar
+        function changeMonth(offset) {
+            currentCalendarDate.setMonth(currentCalendarDate.getMonth() + offset);
+            renderCalendar();
+        }
+
+        function renderCalendar() {
+            const year = currentCalendarDate.getFullYear();
+            const month = currentCalendarDate.getMonth();
+            document.getElementById('calendar-month-display').innerText = `${year}年 ${month+1}月`;
+            
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month+1, 0);
+            const container = document.getElementById('calendar-cells');
+            container.innerHTML = '';
+            
+            for(let i=0; i<firstDay.getDay(); i++) container.innerHTML += '<div class="calendar-day bg-gray-50 border-gray-100"></div>';
+            
+            const today = new Date();
+            const isCurrentMonth = today.getFullYear() === year && today.getMonth() === month;
+
+            for(let d=1; d<=lastDay.getDate(); d++) {
+                const dDate = new Date(year, month, d);
+                const dStr = dDate.toLocaleDateString('ja-JP', {year:'numeric',month:'2-digit',day:'2-digit'}).replaceAll('/','-');
+                
+                let tasks = [];
+                goals.forEach(g => g.tasks.forEach(t => { if(t.date === dStr) tasks.push(t); }));
+                tasks.sort((a,b) => a.completed - b.completed);
+
+                let dots = tasks.slice(0,4).map(t => {
+                    let bg = t.priority==='high' ? 'bg-red-500' : (t.priority==='low' ? 'bg-gray-400' : 'bg-blue-500');
+                    if(t.completed) bg = 'bg-gray-200 text-gray-400 line-through'; else bg += ' text-white';
+                    return `<div class="truncate text-[10px] rounded px-1 mb-0.5 ${bg}">${t.title}</div>`;
+                }).join('');
+                if(tasks.length > 4) dots += `<div class="text-[9px] text-gray-400 text-center">+他${tasks.length-4}件</div>`;
+                const isToday = isCurrentMonth && d === today.getDate();
+                const cell = document.createElement('div');
+                cell.className = `calendar-day cursor-pointer transition flex flex-col ${isToday ? 'today' : ''}`;
+                cell.onclick = () => openDailyDetail(dDate); 
+                cell.innerHTML = `
+                    <div class="text-right font-bold text-xs mb-1 ${isToday?'text-indigo-600':''}">${d}</div>
+                    <div class="flex-1 overflow-hidden">${dots}</div>
+                    ${tasks.length === 0 ? '<div class="absolute inset-0 flex justify-center items-center opacity-0 hover:opacity-100 text-indigo-300 text-2xl">+</div>' : ''}
+                `;
+                container.appendChild(cell);
+            }
+        }
+    </script>
+</body>
+</html>
